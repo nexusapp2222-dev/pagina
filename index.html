@@ -29,6 +29,17 @@ const pad=n=>String(n).padStart(2,"0");
 const fmt=d=>pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+String(d.getFullYear()).slice(2)+" "+pad(d.getHours())+":"+pad(d.getMinutes());
 const rests={},pedidos={},ACT=["NUEVO","PENDIENTE","ACEPTADO","EN_CAMINO"];
 const huerfanos=new Set();
+const VIDA=60*60*1000;
+function parseHora(s){
+  const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4}) (\d{1,2}):(\d{2})/.exec(s||"");
+  if(!m)return null;
+  let y=+m[3];if(y<100)y+=2000;
+  return new Date(y,+m[2]-1,+m[1],+m[4],+m[5]).getTime();
+}
+function tsPedido(d){
+  const t=x=>(x&&x.toDate)?x.toDate().getTime():null;
+  return (d.creado_en_aprox?null:t(d.creado_en))||t(d.timestamp)||t(d.creado_en)||parseHora(d.hora_creacion);
+}
 
 db.collection("restaurantes").onSnapshot(s=>{
   s.forEach(d=>{const x=d.data();rests[d.id]={id:d.id,nombre:x.nombre,estado:x.estado,tipo_gestion:x.tipo_gestion}});pintar();
@@ -98,7 +109,7 @@ db.collectionGroup("pedidos").where("estado","in",["NUEVO","PENDIENTE","ACEPTADO
     const p=c.doc.ref.path;
     if(c.type==="removed"){delete pedidos[p];return}
     const d=c.doc.data();
-    pedidos[p]={rid:c.doc.ref.parent.parent.id,estado:d.estado,num:d.id_numerico,plato:d.nombre_plato,hora:d.hora_creacion||""};
+    pedidos[p]={rid:c.doc.ref.parent.parent.id,estado:d.estado,num:d.id_numerico,plato:d.nombre_plato,hora:d.hora_creacion||"",ts:tsPedido(d)||(pedidos[p]&&pedidos[p].ts)||Date.now()};
     if(!c.doc.metadata.hasPendingWrites)procesar(c.doc.ref,d);
   });
   pintar();
@@ -108,9 +119,12 @@ function pintar(){
   const cnt={};Object.values(pedidos).forEach(p=>{if(ACT.includes(p.estado))cnt[p.rid]=(cnt[p.rid]||0)+1});
   $("v1").innerHTML=Object.values(rests).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(r=>
     `<div class="card"><b>${esc(r.nombre||r.id)}</b><br><span class="${r.estado==="ABIERTO"?"ok":"bad"}">${esc(r.estado||"?")}</span> · ${r.tipo_gestion==="FISICO_REPARTIDOR"?"Autogestión":"En línea"}<br><span class="mut">Activos: ${cnt[r.id]||0}</span></div>`).join("");
-  $("v2").innerHTML=Object.values(pedidos).sort((a,b)=>(b.num||0)-(a.num||0)).slice(0,100).map(p=>
-    `<div class="card"><b>#${esc(p.num||"…")}</b> · ${esc((rests[p.rid]||{}).nombre||p.rid)}<br>${esc(p.plato)}<br><span class="mut">${esc(p.estado)} · ${esc(p.hora)}</span></div>`).join("");
+  const ahora=Date.now();
+  const rec=Object.values(pedidos).filter(p=>ahora-(p.ts||ahora)<VIDA).sort((a,b)=>(b.num||0)-(a.num||0)).slice(0,100);
+  $("v2").innerHTML=`<div class="mut" style="padding:4px 16px">Última hora: ${rec.length} pedido(s)</div>`+(rec.length?rec.map(p=>
+    `<div class="card"><b>#${esc(p.num||"…")}</b> · ${esc((rests[p.rid]||{}).nombre||p.rid)}<br>${esc(p.plato)}<br><span class="mut">${esc(p.estado)} · ${esc(p.hora)}</span></div>`).join(""):`<div class="card mut">No hay pedidos recientes</div>`);
 }
+setInterval(pintar,60000);
 async function wl(){try{await navigator.wakeLock.request("screen")}catch(e){}}
 wl();document.addEventListener("visibilitychange",()=>{if(!document.hidden)wl()});
 </script></body></html>
