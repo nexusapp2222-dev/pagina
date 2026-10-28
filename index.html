@@ -19,7 +19,7 @@ header{padding:12px 16px;background:#0F0A24;position:sticky;top:0}
 <script>
 const PIN="1234";
 if(prompt("PIN")!==PIN){document.body.innerHTML="Acceso denegado";throw 0}
-firebase.initializeApp({apiKey:"TU_API_KEY",authDomain:"TU_PROYECTO.firebaseapp.com",projectId:"TU_PROYECTO",appId:"TU_APP_ID"});
+firebase.initializeApp({apiKey:"AIzaSyCFse23B_GRlRq_jBRy3I24Kg9Bhj5aHVs",authDomain:"llevari.firebaseapp.com",projectId:"llevari",appId:"1:219910137529:web:e5f693b239195dea9add68"});
 const db=firebase.firestore(),FV=firebase.firestore.FieldValue;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -31,7 +31,7 @@ const rests={},pedidos={},ACT=["NUEVO","PENDIENTE","ACEPTADO","EN_CAMINO"];
 
 db.collection("restaurantes").onSnapshot(s=>{
   s.forEach(d=>{const x=d.data();rests[d.id]={id:d.id,nombre:x.nombre,estado:x.estado,tipo_gestion:x.tipo_gestion}});pintar();
-});
+},e=>{$("st").textContent="❌ "+e.message;log("restaurantes: "+e.message)});
 
 const prod={};
 async function precios(rid){
@@ -60,9 +60,10 @@ async function rellenar(ref,d0){
   const hechos=await db.runTransaction(async tr=>{
     const ps=await tr.get(ref);if(!ps.exists)return null;
     const d=ps.data(),up={},e=d.estado||d.status;
+    let rs=null;
+    if(!d.id_numerico)rs=await tr.get(resRef);
     if(!d.restaurante_id)up.restaurante_id=rid;
     if(!d.id_numerico){
-      const rs=await tr.get(resRef);
       const n=Math.max((rs.data()||{}).contador_pedidos||1000,1000)+1;
       tr.update(resRef,{contador_pedidos:n});up.id_numerico=n;
     }
