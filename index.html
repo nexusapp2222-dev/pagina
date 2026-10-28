@@ -28,6 +28,7 @@ function log(t){$("log").textContent=new Date().toLocaleTimeString()+" "+t+"\n"+
 const pad=n=>String(n).padStart(2,"0");
 const fmt=d=>pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+String(d.getFullYear()).slice(2)+" "+pad(d.getHours())+":"+pad(d.getMinutes());
 const rests={},pedidos={},ACT=["NUEVO","PENDIENTE","ACEPTADO","EN_CAMINO"];
+const huerfanos=new Set();
 
 db.collection("restaurantes").onSnapshot(s=>{
   s.forEach(d=>{const x=d.data();rests[d.id]={id:d.id,nombre:x.nombre,estado:x.estado,tipo_gestion:x.tipo_gestion}});pintar();
@@ -52,16 +53,21 @@ function calcPrecio(np,m){
 }
 
 let cola=Promise.resolve();
-function procesar(ref,d){cola=cola.then(()=>rellenar(ref,d)).catch(e=>log("❌ "+e.message))}
+function procesar(ref,d){
+  const rid=ref.parent.parent.id;
+  if(huerfanos.has(rid))return;
+  cola=cola.then(()=>rellenar(ref,d)).catch(e=>log("❌ "+ref.path+": "+e.message))
+}
 async function rellenar(ref,d0){
   const resRef=ref.parent.parent,rid=resRef.id,e0=d0.estado||d0.status;
+  if(huerfanos.has(rid))return;
   let precio=0;
   if(["EN_CAMINO","ENTREGADO","CANCELADO"].includes(e0)&&!d0.precio_platillo)precio=calcPrecio(d0.nombre_plato,await precios(rid));
   const hechos=await db.runTransaction(async tr=>{
     const ps=await tr.get(ref);if(!ps.exists)return null;
     const d=ps.data(),up={},e=d.estado||d.status;
-    let rs=null;
-    if(!d.id_numerico)rs=await tr.get(resRef);
+    const rs=await tr.get(resRef);
+    if(!rs.exists)return "HUERFANO";
     if(!d.restaurante_id)up.restaurante_id=rid;
     if(!d.id_numerico){
       const n=Math.max((rs.data()||{}).contador_pedidos||1000,1000)+1;
@@ -82,6 +88,7 @@ async function rellenar(ref,d0){
     const k=Object.keys(up);if(!k.length)return null;
     tr.update(ref,up);return k;
   });
+  if(hechos==="HUERFANO"){huerfanos.add(rid);log("⚠️ Restaurante '"+rid+"' no existe; se ignoran sus pedidos");return}
   if(hechos)log("Sellado "+rid+"/"+ref.id+": "+hechos.join(", "));
 }
 
