@@ -9,6 +9,8 @@ header{padding:12px 16px;background:#0F0A24;position:sticky;top:0}
 .tabs button.on{background:#7C3AED}
 .card{margin:10px 12px;padding:12px;border-radius:14px;background:#1A103C;border:1px solid #334155}
 .ok{color:#34D399}.bad{color:#EF4444}.mut{color:#A78BFA;font-size:12px}
+.del{margin-top:10px;padding:9px 14px;border:0;border-radius:10px;background:#7F1D1D;color:#fff;font-weight:bold;font-size:12px}
+.del.sure{background:#DC2626}
 #log{font-size:11px;color:#94A3B8;padding:10px 16px;white-space:pre-wrap}
 </style></head><body>
 <header><b>🌉 Puente Llevari</b> <span id="st">Conectando...</span>
@@ -30,6 +32,7 @@ const fmt=d=>pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+String(d.getFullYear()
 const rests={},pedidos={},ACT=["NUEVO","PENDIENTE","ACEPTADO","EN_CAMINO"];
 const huerfanos=new Set();
 const VIDA=60*60*1000;
+let conf=null,confT=null;
 function parseHora(s){
   const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4}) (\d{1,2}):(\d{2})/.exec(s||"");
   if(!m)return null;
@@ -109,11 +112,28 @@ db.collectionGroup("pedidos").where("estado","in",["NUEVO","PENDIENTE","ACEPTADO
     const p=c.doc.ref.path;
     if(c.type==="removed"){delete pedidos[p];return}
     const d=c.doc.data();
-    pedidos[p]={rid:c.doc.ref.parent.parent.id,estado:d.estado,num:d.id_numerico,plato:d.nombre_plato,hora:d.hora_creacion||"",ts:tsPedido(d)||(pedidos[p]&&pedidos[p].ts)||Date.now()};
+    pedidos[p]={path:p,rid:c.doc.ref.parent.parent.id,estado:d.estado,num:d.id_numerico,plato:d.nombre_plato,hora:d.hora_creacion||"",ts:tsPedido(d)||(pedidos[p]&&pedidos[p].ts)||Date.now()};
     if(!c.doc.metadata.hasPendingWrites)procesar(c.doc.ref,d);
   });
   pintar();
 },e=>{$("st").textContent="❌ "+e.message;log(e.message)});
+
+function borrar(b){
+  const p=b.dataset.p;
+  if(conf!==p){
+    conf=p;clearTimeout(confT);
+    confT=setTimeout(()=>{conf=null;pintar()},4000);
+    pintar();return;
+  }
+  clearTimeout(confT);conf=null;
+  b.disabled=true;b.textContent="Eliminando...";
+  db.doc(p).delete().then(()=>{
+    delete pedidos[p];log("🗑 Eliminado "+p);pintar();
+  }).catch(e=>{
+    log("❌ No se pudo eliminar "+p+": "+e.message);
+    b.disabled=false;b.textContent="❌ "+e.message;
+  });
+}
 
 function pintar(){
   const cnt={};Object.values(pedidos).forEach(p=>{if(ACT.includes(p.estado))cnt[p.rid]=(cnt[p.rid]||0)+1});
@@ -122,7 +142,7 @@ function pintar(){
   const ahora=Date.now();
   const rec=Object.values(pedidos).filter(p=>ahora-(p.ts||ahora)<VIDA).sort((a,b)=>(b.num||0)-(a.num||0)).slice(0,100);
   $("v2").innerHTML=`<div class="mut" style="padding:4px 16px">Última hora: ${rec.length} pedido(s)</div>`+(rec.length?rec.map(p=>
-    `<div class="card"><b>#${esc(p.num||"…")}</b> · ${esc((rests[p.rid]||{}).nombre||p.rid)}<br>${esc(p.plato)}<br><span class="mut">${esc(p.estado)} · ${esc(p.hora)}</span></div>`).join(""):`<div class="card mut">No hay pedidos recientes</div>`);
+    `<div class="card"><b>#${esc(p.num||"…")}</b> · ${esc((rests[p.rid]||{}).nombre||p.rid)}<br>${esc(p.plato)}<br><span class="mut">${esc(p.estado)} · ${esc(p.hora)}</span><br><button class="del${conf===p.path?" sure":""}" data-p="${esc(p.path)}" onclick="borrar(this)">${conf===p.path?"⚠️ ¿Seguro? Toca otra vez":"🗑 Eliminar"}</button></div>`).join(""):`<div class="card mut">No hay pedidos recientes</div>`);
 }
 setInterval(pintar,60000);
 async function wl(){try{await navigator.wakeLock.request("screen")}catch(e){}}
